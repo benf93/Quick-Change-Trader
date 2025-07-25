@@ -5,7 +5,7 @@ msg me about bugs/issues on godel
 <img width="202" height="634" alt="stock" src="https://github.com/user-attachments/assets/95519f04-884a-48d9-bbda-3335fd873cb6" />
 <img width="202" height="634" alt="option" src="https://github.com/user-attachments/assets/c0265deb-2212-4c71-a3dd-f8da32991589" />
 <img width="202" height="634" alt="delete" src="https://github.com/user-attachments/assets/cf9c5935-6ebd-4970-86d6-d901627a9ee1" />  
-pip install pyqt6  
+pip install pyqt6 [pywin32 OR comment out WINDOWS]  
 tws api install instructions: https://www.interactivebrokers.com/campus/trading-lessons/accessing-the-tws-python-api-source-code/  
 port 7497 (search for 'init tws api')
 
