@@ -3,7 +3,8 @@ USE THIS SCRIPT AT YOUR OWN RISK!!
 msg me about bugs/issues on godel  
 -schwab99  
 <img width="202" height="634" alt="stock" src="https://github.com/user-attachments/assets/95519f04-884a-48d9-bbda-3335fd873cb6" />
-<img width="202" height="634" alt="option" src="https://github.com/user-attachments/assets/c0265deb-2212-4c71-a3dd-f8da32991589" />  
+<img width="202" height="634" alt="option" src="https://github.com/user-attachments/assets/c0265deb-2212-4c71-a3dd-f8da32991589" />
+<img width="202" height="634" alt="delete" src="https://github.com/user-attachments/assets/cf9c5935-6ebd-4970-86d6-d901627a9ee1" />  
 pip install pyqt6  
 tws api wheel instructions: https://stackoverflow.com/questions/57618117/installing-the-ibapi-package  
 default port 7497
