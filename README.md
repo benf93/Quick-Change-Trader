@@ -40,8 +40,8 @@ up/down: move selected option
 middle mouse: paste  
 return: submit  
 up/down: history  
-/es for futures or OCC for options  
-ESC/return sometimes/click outside panel: close  
+/ES etc for minis or OCC for options  
+ESC/return sometimes/click outside panel: close most panels
 
 also AHK V2 script to move instrument in chart under mouse with ctrl+t  
 good for chart trading or to move lots of options over.  
