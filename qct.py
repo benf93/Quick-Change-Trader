@@ -1,4 +1,4 @@
-# Quick Change Trader v0.9
+# Quick Change Trader v0.91
 import warnings
 warnings.filterwarnings("ignore") # NOTE: used to ignore gencode errors (on my machine)
 #from var_dump import var_dump     # used for quick debug of tws api classes, especially contracts
@@ -88,9 +88,9 @@ class twsapiWrapper(EWrapper):
                 ladderex.ct_details = 'failed'
 
     def position(self, account, contract, pos, avgCost):
-        avg_str = str(math.ceil(float(avgCost) * 100) / 100)
+        avg_str = str(round(avgCost, 2))
         if contract.secType == 'OPT':
-            avg_str = str(math.ceil(float(avgCost)) / 100)
+            avg_str = str(round(avgCost / 100, 2))
         pos_str = str(int(pos))
 
         ladderex.pos_signal.emit(contract.conId, pos_str, avg_str)
@@ -673,7 +673,7 @@ class floating_panel:
                 if n == 'order_diag':
                     L.activated_floating_panel = floating_panel('order_diag')
                     L.activated_floating_panel.prepare()
-                elif n == 'oca_group_create': # TODO
+                elif n == 'oca_group_create':
                     if L.activated_floating_panel_ext: L.activated_floating_panel_ext.collision('close', 'click', None)
                     L.activated_floating_panel_ext = floating_panel('oca_group_create')
                     L.activated_floating_panel = None
@@ -781,9 +781,8 @@ class floating_panel:
                     E = 'click' ; n = 'close'
                 elif enum == Qt.Key.Key_C:
                     E = 'click' ; n = 'close'
-                elif enum == Qt.Key.Key_V: # handle switch to other extended panels 
+                elif enum == Qt.Key.Key_V: # handle other extended panels 
                     pass
-                    #E = 'click' ; n = 'close' ; ret = enum
                 elif enum == Qt.Key.Key_Return:
                     E = 'click' ; n = 'submit'
                 else:
@@ -1109,19 +1108,10 @@ class ladderWorker(QThread):
 
         while True: 
             if t.ask > 0 and t.bid > 0:
-                mid = ( t.ask + t.bid ) // 2 ; t.init_ask = t.ask
+                mid = t.ask ; t.init_ask = t.ask
                 t.current_zoom_inc = t.set_zoom_inc(mid)
                 
-                mid = mid - (mid % t.current_zoom_inc)
-                offset = 999999 - mid - ((L.ladder_rows // 2) * t.current_zoom_inc)
-                if offset + t.current_zoom_inc * L.ladder_rows > 999999:
-                    offset = 999999 - (L.ladder_rows - 1) * t.current_zoom_inc
-                if offset < 0:
-                    offset = 0
-
-                t.mpl_offset = offset
-                if L.target is t:
-                    L.update()
+                t.snap_offset_mid()
                 break
             
             # after 5 seconds, switch to a 1 second delay in background
@@ -1130,26 +1120,16 @@ class ladderWorker(QThread):
 
             if L.target is t and time.time() - start_time > 1:
                 snap_one = None 
-                snap_type = 'none'
-                if   t.ask   > 0: snap_one = t.ask          ;snap_type = 'ask'
-                elif t.bid   > 0: snap_one = t.bid          ;snap_type = 'bid'
-                elif t.last  > 0: snap_one = t.last         ;snap_type = 'last'
-                elif t.close > 0: snap_one = t.close        ;snap_type = 'close'
+                if   t.ask   > 0: snap_one = t.ask 
+                elif t.bid   > 0: snap_one = t.bid
+                elif t.last  > 0: snap_one = t.last
+                elif t.close > 0: snap_one = t.close
 
                 if snap_one is not None:
                     mid = snap_one ; t.init_ask = snap_one
                     t.current_zoom_inc = t.set_zoom_inc(mid)
-                    
-                    mid = mid - (mid % t.current_zoom_inc)
-                    offset = 999999 - mid - ((L.ladder_rows // 2) * t.current_zoom_inc)
-                    if offset + t.current_zoom_inc * L.ladder_rows > 999999:
-                        offset = 999999 - (L.ladder_rows - 1) * t.current_zoom_inc
-                    if offset < 0:
-                        offset = 0
 
-                    t.mpl_offset = offset
-                    L.update()
-
+                    t.snap_offset_mid()
                     break
 
             p.usleep(delay) # microseconds
@@ -1158,12 +1138,12 @@ class tws_Trade:
     tml = { } # stores all trades, indexed by tws orderId
     valid_id = -1
     
-    def __init__(self, target, o, trade_type, is_stop, place = True):
+    def __init__(self, target, price_int, trade_type, is_stop, place = True):
         L = ladderex 
         self.spc_descriptor = ''
 
-        self.offset = o
-        self.price  = L.mpl[o][1] / 100
+        self.offset = price_int
+        self.price  = price_int / 100
 
         # get order size from form
         size = L.size_form.text()
@@ -1219,18 +1199,20 @@ class tws_Instrument:
         default = 1
         li = []
 
-        if mid < 2*100:     # 2
+        if mid < 2*100:
             li = [ 1, 2, 5, 10 ]
-        elif mid < 20*100:  # 20
+        elif mid < 20*100:
             li = [ 1, 2, 5, 10, 20 ]
-        elif mid < 100*100: # 100
+        elif mid < 100*100:
             li = [ 1, 2, 5, 10, 20 ]
-        elif mid < 200*100: # 200
+        elif mid < 200*100:
             li = [ 1, 2, 5, 10, 20, 50 ] ; default = 2 
-        elif mid < 400*100: # 400
+        elif mid < 400*100:
             li = [ 1, 2, 5, 10, 20, 50, 100 ] ; default = 5 
-        else:
+        elif mid < 2000*100:
             li = [ 1, 5, 10, 20, 50, 100, 200 ] ; default = 10 
+        else:
+            li = [ 1, 10, 20, 50, 100, 200, 500, 1000 ] ; default = 20 
 
         t.zoom_inc = li
         t.default_zoom = default 
@@ -1238,8 +1220,7 @@ class tws_Instrument:
         return default
     
     def snap_offset_mid(self):
-        t = self
-        L = ladderex 
+        L = ladderex ; t = self
 
         mid = None
         if t.ask > 0 and t.bid > 0: 
@@ -1249,20 +1230,18 @@ class tws_Instrument:
         elif t.last  > 0: mid = t.last
         elif t.close > 0: mid = t.close
 
-        mid = mid - (mid % t.current_zoom_inc)
-        t.mpl_offset = 999999 - mid - ((L.ladder_rows // 2) * t.current_zoom_inc)
+        t.mpl_offset = mid + L.ladder_rows_mid * t.current_zoom_inc
 
         t.correct_oob()
         L.update()
     
-    def correct_oob(self):
-        L = ladderex
-        t = self
+    def correct_oob(self): # checks oob and ceils offset if needed so that it plays nice with zoom inc
+        L = ladderex ; t = self
         
-        if t.mpl_offset + t.current_zoom_inc * L.ladder_rows > 999999:
-            t.mpl_offset = 999999 - (L.ladder_rows - 1) * t.current_zoom_inc
-        if t.mpl_offset < 0:
-            t.mpl_offset = 0
+        t.mpl_offset = t.mpl_offset + (t.current_zoom_inc - t.mpl_offset) % t.current_zoom_inc
+        
+        if t.mpl_offset - L.ladder_rows * t.current_zoom_inc < 0:
+            t.mpl_offset = (L.ladder_rows - 1) * t.current_zoom_inc
     
     def make_target(self):
         L = ladderex
@@ -1471,7 +1450,7 @@ class widgetLadder(QWidget):
     ladder_bot_pane_h   = 20
     ladder_win_height   = ladder_height + ladder_ctrl_height + ladder_bot_pane_h
     ladder_win_width    = 200
-    ladder_rows         = 29
+    ladder_rows         = 29 ; ladder_rows_mid = ladder_rows // 2
     fill_pane_width     = 26
     
     wheel_focus_click = False
@@ -1483,6 +1462,10 @@ class widgetLadder(QWidget):
     last_price_box_width = 0
     buy_bxs  = { }
     sell_bxs = { }
+
+    price_rows = [0] * ladder_rows
+    # NOTE: the price displayed should always be the price for the row you click
+    # array is zeroed at start of each repaint for some degree of safety
         
     # signals and slots
     tick_signal      = pyqtSignal(int, int, float)
@@ -1569,7 +1552,7 @@ class widgetLadder(QWidget):
 
         elif change == 'price':
             t.price = n
-            t.offset = 999999 - int(t.price * 100)
+            t.offset = int(t.price * 100)
 
         if t.inst == L.target: L.update()
     
@@ -1581,10 +1564,9 @@ class widgetLadder(QWidget):
             L.iml_idx[ml_index].bid     = int(n * 100)
         elif tick_type == 2:
             L.iml_idx[ml_index].ask     = int(n * 100)
-            # reset zoom_inc array if ask is 150% of the price used to set it initially
-            if t.ask / t.init_ask > 1.5:
-                mid = ( t.ask + t.bid ) // 2 ; t.init_ask = t.ask
-                t.set_zoom_inc(mid)
+            # recal zoom_inc array if ask doubled since set
+            if t.ask / t.init_ask >= 2.0:
+                t.init_ask = t.ask ; t.set_zoom_inc(t.ask)
         elif tick_type == 4:
             L.iml_idx[ml_index].last    = int(n * 100)
         elif tick_type == 9:
@@ -1610,7 +1592,7 @@ class widgetLadder(QWidget):
         super().__init__()
         L = self
         L.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent) # must do fills
-        
+
         self.setFixedSize(L.ladder_win_width, L.ladder_win_height)
         self.move(1000, 200)
         self.setWindowTitle('Quick Trader')
@@ -1634,33 +1616,14 @@ class widgetLadder(QWidget):
         L.order_overlap = False # if true when order is clicked place a new order
         
         L.win_id = int(self.winId())
-
-        # create master price ladder
-        n_max = int('9999' + '99')
-        mpl = [None] * (n_max + 1)
-
-        for i, j in enumerate(mpl):
-            nh = n_max // 100
-            nl = n_max - nh * 100
-
-            if nl < 10:
-                z = '0'
-            else:
-                z = ''
-
-            mpl[i] = [ str(nh) + '.' + z + str(nl), n_max, nh, nl ]
-            
-            n_max -= 1
         
-        L.mpl = mpl
-        
-        L.ctrl_panel_font = QFont("Consolas", 11)
+        L.ctrl_pane_font = QFont("Consolas", 11)
 
         L.bid_hl  = QColor(255,243,133)
         L.ask_hl  = QColor(129,210,125)
         L.last_hl = QColor(255,204,0)
 
-        # init tws api thread and worker threads
+        # init tws api thread and worker threads 
         try:
             ibapp.connect("127.0.0.1", 7497, clientId=0)
         except:
@@ -1695,10 +1658,10 @@ class widgetLadder(QWidget):
         L.ask_arrow.fill(QColor(0, 0, 0, 0))
         
         L.bot_pane = QPixmap(QSize(L.ladder_win_width, L.ladder_bot_pane_h))
-        L.bot_pane.fill(QColor(180, 210, 210, 255))
+        L.bot_pane.fill(QColor(180, 210, 210))
         
-        L.ctrl_panel = QPixmap(QSize(L.ladder_win_width, L.ladder_ctrl_height))
-        L.ctrl_panel.fill(QColor(180, 210, 210, 255))
+        L.ctrl_pane = QPixmap(QSize(L.ladder_win_width, L.ladder_ctrl_height))
+        L.ctrl_pane.fill(QColor(180, 210, 210))
         
         L.fill_pane = QPixmap(QSize(L.fill_pane_width, L.ladder_height))
         L.fill_pane.fill(QColor(144, 180, 147))
@@ -1733,7 +1696,7 @@ class widgetLadder(QWidget):
         L.spc_icon_target.fill(QColor(147 + 20, 112 + 20, 219 + 20))
         L.spc_icon_group.fill(QColor(147 + 20, 112 + 20, 219 + 20))
         
-        fm = QFontMetrics(L.ctrl_panel_font)
+        fm = QFontMetrics(L.ctrl_pane_font)
         L.parent_arrow_w = 30
         L.parent_arrow_h = fm.ascent()
         L.parent_arrow = QPixmap(QSize(L.parent_arrow_w, L.parent_arrow_h))
@@ -1935,7 +1898,7 @@ class widgetLadder(QWidget):
         qp.fillRect(L.sbutton_wh // 2, 3 + L.sbutton_wh // 4, 4, 4, QColor(20,20,20))
         qp.end()
         
-        qp.begin(L.ctrl_panel)
+        qp.begin(L.ctrl_pane)
         qp.fillRect(L.sbutton_opt_x, L.sbutton_opt_y, L.sbutton_wh, L.sbutton_wh, QColor(180 - 44, 210 - 44, 210 - 44, 255))
         qp.fillRect(L.sbutton_tbox_x, L.sbutton_tbox_y, L.sbutton_wh, L.sbutton_wh, QColor(180 - 44, 210 - 44, 210 - 44, 255))
         qp.end()
@@ -2011,7 +1974,7 @@ class widgetLadder(QWidget):
         if s: 
             s.make_target()
         
-        if False: # NOTE: enable to stop misclicks on start
+        if True: # NOTE: enable to stop misclicks on start
             L.delete_mode = True
         
         L.trade_check.start(1000) # ms
@@ -2066,13 +2029,15 @@ class widgetLadder(QWidget):
             # qbuttons trigger this on hover etc
             return
         
-        qp.drawPixmap(0, 0, L.ctrl_panel)
+        L.price_rows = [0] * L.ladder_rows ; L.buy_bxs  = { } ; L.sell_bxs = { }
+        
+        qp.drawPixmap(0, 0, L.ctrl_pane)
         qp.drawPixmap(0, L.ladder_ctrl_height, L.bt_decor)
         
         if L.delete_mode == True:
             qp.drawPixmap(L.ladder_win_width - L.fill_pane_width, L.ladder_ctrl_height, L.fill_pane_dm)
         else:
-            qp.drawPixmap(L.ladder_win_width - L.fill_pane_width, L.ctrl_panel.height(), L.fill_pane)
+            qp.drawPixmap(L.ladder_win_width - L.fill_pane_width, L.ctrl_pane.height(), L.fill_pane)
         
         qp.drawPixmap(0, L.ladder_win_height - L.ladder_bot_pane_h, L.bot_pane)
         qp.drawPixmap(L.sbutton_opt_x, L.sbutton_opt_y, L.sbutton_opt_pm)
@@ -2090,7 +2055,7 @@ class widgetLadder(QWidget):
             qp.end()
             return
         
-        qp.setFont(L.ctrl_panel_font)
+        qp.setFont(L.ctrl_pane_font)
         
         # draw instrument name and position
         if T.ct_type == 'opt':
@@ -2127,7 +2092,7 @@ class widgetLadder(QWidget):
             else:
                 qp.fillRect(0, L.ladder_win_height - L.ladder_bot_pane_h, bot_pane_off, L.ladder_bot_pane_h, QColor(100,100,100))
         
-        qp.setFont(L.ctrl_panel_font)
+        qp.setFont(L.ctrl_pane_font)
         qp.setPen(QColor(250, 250, 250))
 
         if T.close > 0 and T.last > 0:
@@ -2164,14 +2129,21 @@ class widgetLadder(QWidget):
 
         o = T.mpl_offset
         m = L.ladder_row_spacing
-
-        # calculate price box width, price box x based on largest number
-        qp.setFont(font_bold)
-        r = qp.boundingRect(L.blank_r, 0, L.mpl[0][0])
-        x_off = int(L.ladder_win_width / 2 - r.width() / 2) - 8
         
-        wref = [ '9.99', '99.99', '999.99', '9999.99' ]
-        r = qp.boundingRect(L.blank_r, 0, wref[len(L.mpl[o][0]) - 4])
+        # calculate price box x and width based on largest string relevant 
+        qp.setFont(font_bold)
+        r_max = qp.boundingRect(L.blank_r, 0, '9999.99')
+        x_off = int(L.ladder_win_width / 2 - r_max.width() / 2) - 8
+        
+        if   o < 1000:
+             r = qp.boundingRect(L.blank_r, 0, '9.99')
+        elif o < 10000:
+             r = qp.boundingRect(L.blank_r, 0, '99.99')
+        elif o < 100000:
+             r = qp.boundingRect(L.blank_r, 0, '999.99')
+        else:
+             r = r_max 
+        
         pb_width = int(r.width()) + 8
         
         fm = QFontMetrics(font_bold)
@@ -2192,7 +2164,7 @@ class widgetLadder(QWidget):
             else:
                 ask_adj = L.ladder_row_spacing // 2 + 1
 
-            na = 999999 - (T.ask + (T.current_zoom_inc - nrm_ask)) # ciel
+            na = T.ask + (T.current_zoom_inc - nrm_ask) # ciel
         else:
             qp.drawPixmap(bot_pane_off + 6 , L.ladder_win_height - 18, L.price_missing_warn)
 
@@ -2201,17 +2173,17 @@ class widgetLadder(QWidget):
             nrm_bid = T.bid % T.current_zoom_inc
             if nrm_bid != 0:
                 bid_adj = L.ladder_row_spacing // 2 - 1
-            nb = 999999 - (T.bid - nrm_bid) # floor
+            nb = T.bid - nrm_bid # floor
         else:
             qp.drawPixmap(bot_pane_off + 6 , L.ladder_win_height - 18, L.price_missing_warn)
 
         if T.last > 0:
             nrm_last = T.last % T.current_zoom_inc
-            nl = 999999 - (T.last - nrm_last) # floor
+            nl = T.last - nrm_last # floor
         elif T.close > 0: 
             # try to display close if last is missing
             nrm_last = T.close % T.current_zoom_inc
-            nl = 999999 - (T.close - nrm_last) # floor
+            nl = T.close - nrm_last # floor
             nl_clr = QColor(208, 122, 129)
         
         L.last_price_box_width = pb_width
@@ -2219,26 +2191,44 @@ class widgetLadder(QWidget):
 
         nb_hit = None 
         na_hit = None 
-        
-        ind_bxs = { }
+
+        # populate boxes for trades, indicators, fills (boxes are all ceiled)
+        boxes = { }        
+        for r in T.trades:
+            ceil_offset = r.offset + (T.current_zoom_inc - r.offset) % T.current_zoom_inc
+            
+            if ceil_offset not in boxes: boxes[ceil_offset] = { }
+            trade_row = boxes[ceil_offset]
+            
+            if r.trade_type == 'B':
+                if 'buy' in trade_row:
+                    trade_row['buy'].append(r)
+                else:
+                    trade_row['buy'] = [ r ]
+            
+            elif r.trade_type == 'S':
+                if 'sell' in trade_row:
+                    trade_row['sell'].append(r)
+                else:
+                    trade_row['sell'] = [ r ]
+            
         for ci in L.click_indicator.copy():
-            trade = ci[0] ; start_time = ci[1] ; ci_type = ci[2]
+            trade = ci[0] ; start_time = ci[1]
             
             if time.time() - start_time > 2.0: # fade time
                 L.click_indicator.remove(ci)
             if trade.inst != L.target: continue
-
-            row = math.ceil((trade.offset - T.mpl_offset) / T.current_zoom_inc)
-            if row < 0 or row >= L.ladder_rows:
-                continue
-
+            
+            ceil_offset = trade.offset + (T.current_zoom_inc - trade.offset) % T.current_zoom_inc
+            
+            if ceil_offset not in boxes: boxes[ceil_offset] = { }
+            trade_row = boxes[ceil_offset]
+                
             if trade.trade_type == 'S':
-                ind_bxs[row + L.ladder_rows] = [ci, row]
+                trade_row['ind_s'] = ci
             else:
-                ind_bxs[row] = [ci, row]
-            L.update() # update while indicator boxes are visible
-        
-        fill_bxs = { }
+                trade_row['ind_b'] = ci
+            
         for f in L.fill_indicator.copy():
             trade = f[0] ; start_time = f[1] ; fill_type = f[2]
             
@@ -2246,150 +2236,127 @@ class widgetLadder(QWidget):
                 L.fill_indicator.remove(f)
             if trade.inst != L.target: continue
             
-            row = math.ceil((trade.offset - T.mpl_offset) / T.current_zoom_inc)
-            if row < 0 or row >= L.ladder_rows:
-                continue
+            ceil_offset = trade.offset + (T.current_zoom_inc - trade.offset) % T.current_zoom_inc
             
-            fill_bxs[row] = [f, row]
+            if ceil_offset not in boxes: boxes[ceil_offset] = { }
+            boxes[ceil_offset]['fill'] = fill_type
         
         # fill ladder with available price information
         bold_inc = T.current_zoom_inc * 5
         for i in range(L.ladder_rows):
             p = QPointF(x_off + 4, (i + 1) * m - y_off)
+            y = i * m + L.ladder_ctrl_height
             
             if na == o:
-                qp.fillRect(x_off, i * m + L.ladder_ctrl_height, pb_width, L.ladder_row_spacing, L.ask_hl)
+                qp.fillRect(x_off, y, pb_width, L.ladder_row_spacing, L.ask_hl)
                 L.last_ask_pos = i
                 na_hit = i
             if nb == o:
-                qp.fillRect(x_off, i * m + L.ladder_ctrl_height, pb_width, L.ladder_row_spacing, L.bid_hl)
+                qp.fillRect(x_off, y, pb_width, L.ladder_row_spacing, L.bid_hl)
                 L.last_bid_pos = i
                 nb_hit = i
             if nl == o:
-                qp.fillRect(x_off + 3, i * m + L.ladder_ctrl_height, pb_width - 6, L.ladder_row_spacing, nl_clr)
+                qp.fillRect(x_off + 3, y, pb_width - 6, L.ladder_row_spacing, nl_clr)
 
             qp.setFont(font)
-            if L.mpl[o][1] % bold_inc == 0:
+            if o % bold_inc == 0:
                 qp.setFont(font_bold)
-
-            qp.drawText(p, L.mpl[o][0])
-
-            o += T.current_zoom_inc
-
-        # populate trade display boxs 
-        L.buy_bxs  = { }
-        L.sell_bxs = { }
-        for r in T.trades:
-            # NOTE: trade prices are floored so boxes may not be accurate if zoom level != 1
-            row = math.ceil((r.offset - T.mpl_offset) / T.current_zoom_inc)
-
-            if row < 0 or row >= L.ladder_rows:
-                continue
-
-            y = L.ladder_row_spacing * row + L.ladder_ctrl_height
-
-            if r.trade_type == 'B':
-                if y in L.buy_bxs:
-                    L.buy_bxs[y][1].append(r)
-                else:
-                    L.buy_bxs[y] = [ row, [r] ]
-
-            elif r.trade_type == 'S':
-                if y in L.sell_bxs:
-                    L.sell_bxs[y][1].append(r)
-                else:
-                    L.sell_bxs[y] = [ row, [r] ]
         
-        # draw fill indicators
-        for b in fill_bxs.values():
-            w = L.fill_pane_width - 8
-            x = L.ladder_width - L.fill_pane_width + 5
-            
-            trade = b[0][0] ; start_time = b[0][1] ; fill_type = b[0][2]
-            row   = b[1]
-            
-            y = L.ladder_row_spacing * row + L.ladder_ctrl_height + 2
+            pstr = f'{o / 100:.2f}'
 
-            color = QColor(0, 0, 0)
-            
-            if fill_type == 'part':
-                color = QColor(159, 234, 9)
+            qp.drawText(p, pstr) # draws past box above 9999.99
 
-            qp.fillRect(x, y, w, L.ladder_row_spacing - 4, color)
-
-        # draw buy and sell boxes
-        for y, b in L.buy_bxs.items():
-            top = b[1][-1]
-            
-            color = QColor(130, 130, 130)
-            if top.status == 'live':
-                color = QColor(100, 100, 250)
-            elif top.status == 'spc':
-                color = QColor(147, 112, 219)
+            L.price_rows[i] = o
+    
+            # draw boxes for trades, indicators, fills
+            if o in boxes:
+                row_bxs = boxes[o]
                 
-            qp.fillRect(0, y, L.last_price_box_x, L.ladder_row_spacing - 1, color)
+                if 'buy' in row_bxs:
+                    top = row_bxs['buy'][-1]
+                    L.buy_bxs[i] = top
+                    
+                    color = QColor(130, 130, 130)
+                    if top.status == 'live':
+                        color = QColor(100, 100, 250)
+                    elif top.status == 'spc':
+                        color = QColor(147, 112, 219)
+                        
+                    qp.fillRect(0, y, L.last_price_box_x, L.ladder_row_spacing - 1, color)
+                
+                    if top.is_stop:
+                        qp.drawPixmap(L.last_price_box_x // 2 - L.stop_hex_mid, y, L.stop_hex)
+                    if len(row_bxs['buy']) > 1:
+                        qp.drawPixmap(1, y, L.mult_trades)
 
-            if top.is_stop:
-                qp.drawPixmap(L.last_price_box_x // 2 - L.stop_hex_mid, y, L.stop_hex)
-            if len(b[1]) > 1:
-                qp.drawPixmap(1, y, L.mult_trades)
+                    if len(top.spc_descriptor):
+                        qp.drawPixmap(L.last_price_box_x - 9, y + 2, L.spc_trigger)
 
-            if len(top.spc_descriptor):
-                qp.drawPixmap(L.last_price_box_x - 9, y + 2, L.spc_trigger)
+                    if top.status == 'spc' and top.spc_icon is not None:
+                        qp.drawPixmap(L.last_price_box_x - top.spc_icon.width(), y - 1, top.spc_icon)
 
-            if top.status == 'spc' and top.spc_icon is not None:
-                qp.drawPixmap(L.last_price_box_x - top.spc_icon.width(), y - 1, top.spc_icon)
-            
-        sell_box_len = L.ladder_width - L.last_price_box_x - L.last_price_box_width - L.fill_pane_width
-        for y, b in L.sell_bxs.items():
-            top = b[1][-1]
-            l = sell_box_len
-            
-            color = QColor(130, 130, 130)
-            if top.status == 'live':
-                color = QColor(250, 100, 100)
-            elif top.status == 'spc':
-                color = QColor(147, 112, 219)
+                if 'sell' in row_bxs:
+                    top = row_bxs['sell'][-1]
+                    L.sell_bxs[i] = top
+                    
+                    l = L.ladder_width - L.last_price_box_x - L.last_price_box_width - L.fill_pane_width
+                    
+                    color = QColor(130, 130, 130)
+                    if top.status == 'live':
+                        color = QColor(250, 100, 100)
+                    elif top.status == 'spc':
+                        color = QColor(147, 112, 219)
 
-            qp.fillRect(L.last_price_box_x + L.last_price_box_width, y, l, L.ladder_row_spacing - 1, color)
+                    qp.fillRect(L.last_price_box_x + L.last_price_box_width, y, l, L.ladder_row_spacing - 1, color)
 
-            if top.is_stop:
-                qp.drawPixmap(L.last_price_box_x + L.last_price_box_width + l // 2 - L.stop_hex_mid, y, L.stop_hex)
-            if len(b[1]) > 1:
-                qp.drawPixmap(L.last_price_box_x + L.last_price_box_width + l - 12, y, L.mult_trades)
-            
-            if len(top.spc_descriptor):
-                os = L.last_price_box_x + L.last_price_box_width + 2
-                qp.drawPixmap(os, y + 2, L.spc_trigger)
-            
-            if top.status == 'spc' and top.spc_icon is not None:
-                qp.drawPixmap(L.last_price_box_x + L.last_price_box_width, y - 1, top.spc_icon)
-        
-        # draw click indicators
-        for ci in ind_bxs.values():
-            trade = ci[0][0] ; ci_type = ci[0][2] ; row = ci[1]
+                    if top.is_stop:
+                        qp.drawPixmap(L.last_price_box_x + L.last_price_box_width + l // 2 - L.stop_hex_mid, y, L.stop_hex)
+                    if len(row_bxs['sell']) > 1:
+                        qp.drawPixmap(L.last_price_box_x + L.last_price_box_width + l - 12, y, L.mult_trades)
+                    
+                    if len(top.spc_descriptor):
+                        os = L.last_price_box_x + L.last_price_box_width + 2
+                        qp.drawPixmap(os, y + 2, L.spc_trigger)
+                    
+                    if top.status == 'spc' and top.spc_icon is not None:
+                        qp.drawPixmap(L.last_price_box_x + L.last_price_box_width, y - 1, top.spc_icon)
 
-            w = L.last_price_box_x
-            y = L.ladder_row_spacing * row + L.ladder_ctrl_height
-            x = 0
+                for box_type in [ 'ind_b', 'ind_s' ]:
+                    if not box_type in row_bxs: continue
+                    trade = row_bxs[box_type][0] ; dt = row_bxs[box_type][1] ; ci_type = row_bxs[box_type][2]
 
-            if trade.trade_type == 'S':
-                x = L.last_price_box_x + L.last_price_box_width
-                w = sell_box_len
+                    w = L.last_price_box_x
+                    x = 0
 
-            alpha = 1 - (time.time() - ci[0][1]) / 2.0 # fade time
-            qp.setOpacity(alpha)
+                    if 's' in box_type: # sell box dims
+                        x = L.last_price_box_x + L.last_price_box_width
+                        w = L.ladder_width - L.last_price_box_x - L.last_price_box_width - L.fill_pane_width
 
-            if ci_type == 'submit':
-                qp.drawPixmap(x, y, L.indicator_left)
-                qp.drawPixmap(x + w - 6, y, L.indicator_right)
-            elif ci_type == 'delete':
-                qp.drawPixmap(x, y, L.indicator_left)
-                qp.drawPixmap(x + w - 6, y, L.indicator_right)
-                qp.drawPixmap(x + w - 60, y, L.indicator_delete)
-            
-        qp.setOpacity(1.0)
-        
+                    alpha = 1 - (time.time() - dt) / 2.0 # fade time
+                    qp.setOpacity(alpha)
+
+                    if ci_type == 'submit':
+                        qp.drawPixmap(x, y, L.indicator_left)
+                        qp.drawPixmap(x + w - 6, y, L.indicator_right)
+                    elif ci_type == 'delete':
+                        qp.drawPixmap(x, y, L.indicator_left)
+                        qp.drawPixmap(x + w - 6, y, L.indicator_right)
+                        qp.drawPixmap(x + w - 60, y, L.indicator_delete)
+                    
+                    qp.setOpacity(1.0)
+                    L.update() # update while indicator boxes are visible
+
+                if 'fill' in row_bxs:
+                    w = L.fill_pane_width - 8
+                    x = L.ladder_width - L.fill_pane_width + 5
+                    
+                    if row_bxs['fill'] == 'part':
+                        qp.fillRect(x, y, w, L.ladder_row_spacing - 4, QColor(159, 234, 9))
+                    else:
+                        qp.fillRect(x, y, w, L.ladder_row_spacing - 4, QColor(0, 0, 0))
+
+            o -= T.current_zoom_inc
+
         # draw bid/ask arrows
         if na_hit is not None:
             if not ask_adj:
@@ -2398,11 +2365,11 @@ class widgetLadder(QWidget):
                 qp.drawPixmap(x_off + pb_width-2, na_hit * m + L.ladder_ctrl_height + ask_adj, L.ask_arrow)
         elif na == 0:
             pass
-        elif na >= o:
+        elif na <= o:
             aoff = L.ladder_rows
             mod = L.ladder_row_spacing // 2 
             qp.drawPixmap(x_off + pb_width-2, aoff * m + L.ladder_ctrl_height+1 - mod, L.ask_arrow)
-        elif na < T.mpl_offset:
+        elif na > T.mpl_offset:
             aoff = 0
             mod = L.ladder_row_spacing // 2 
             qp.drawPixmap(x_off + pb_width-2, aoff * m + L.ladder_ctrl_height+1 - mod, L.ask_arrow)
@@ -2414,11 +2381,11 @@ class widgetLadder(QWidget):
                 qp.drawPixmap(x_off - 14, nb_hit * m + L.ladder_ctrl_height - bid_adj, L.bid_arrow)
         elif nb == 0:
             pass
-        elif nb >= o:
+        elif nb <= o:
             boff = L.ladder_rows
             mod = L.ladder_row_spacing // 2 
             qp.drawPixmap(x_off - 14, boff * m + L.ladder_ctrl_height+1 - mod, L.bid_arrow)
-        elif nb < T.mpl_offset:
+        elif nb > T.mpl_offset:
             boff = 0
             mod = L.ladder_row_spacing // 2 
             qp.drawPixmap(x_off - 14, boff * m + L.ladder_ctrl_height+1 - mod, L.bid_arrow)
@@ -2430,7 +2397,7 @@ class widgetLadder(QWidget):
         if P:
             for n, g in P.graphics.items():
                 qp.drawPixmap(g[1], g[2], g[0])
-
+        
         qp.end()
 
     def keyPressEvent(self, e):
@@ -2502,11 +2469,11 @@ class widgetLadder(QWidget):
 
         # navigate the ladder
         if key == Qt.Key.Key_K.value:   #K
-            T.mpl_offset -= 6 * T.current_zoom_inc
+            T.mpl_offset += 6 * T.current_zoom_inc
             T.correct_oob() ; L.update() ; return
 
         elif key == Qt.Key.Key_J.value: #J
-            T.mpl_offset += 6 * T.current_zoom_inc
+            T.mpl_offset -= 6 * T.current_zoom_inc
             T.correct_oob() ; L.update() ; return
 
         elif key == Qt.Key.Key_M.value: #M
@@ -2518,7 +2485,7 @@ class widgetLadder(QWidget):
             T.snap_offset_mid()
             T.correct_oob() ; L.update() ; return
         
-        if key == Qt.Key.Key_End.value: #print internals to console
+        if key == Qt.Key.Key_End.value: # print internals to console
             print('- - - diag - - -\n')
             for k, s in L.iml.items():
                 print('instr:', int(s.shadow), s.ct_type, s.name)
@@ -2528,7 +2495,7 @@ class widgetLadder(QWidget):
                         if t != s.trades[-1]: print(t.id, end=ax+',')
                         else: print(t.id, end=ax+'\n')
 
-            for k, t in tws_Trade.tml.items():
+            for t in tws_Trade.tml.values():
                 if t.status != 'spc': print('trade:', t.id, t.status)
             print('\n- - diag end - -') ; return
 
@@ -2556,10 +2523,10 @@ class widgetLadder(QWidget):
 
         # scroll event on ladder, scroll offset if in proper bounds
         if pos.x() < L.last_price_box_x or pos.x() > L.last_price_box_width + L.last_price_box_x:
-            if e.angleDelta().y() > 0:
+            if e.angleDelta().y() < 0:
                 T.mpl_offset -= 4 * T.current_zoom_inc
 
-            elif e.angleDelta().y() < 0:
+            elif e.angleDelta().y() > 0:
                 T.mpl_offset += 4 * T.current_zoom_inc
 
             T.correct_oob()
@@ -2572,32 +2539,28 @@ class widgetLadder(QWidget):
             if i + 1 >= len(T.zoom_inc):
                 return
 
-            row = int((pos.y() - L.ladder_ctrl_height) / L.ladder_row_spacing)
-
+            row = (pos.y() - L.ladder_ctrl_height) // L.ladder_row_spacing
             new_inc = T.zoom_inc[i+1]
-            j = T.mpl_offset + row * T.current_zoom_inc
-            
-            modu = L.mpl[j][1] % new_inc
-            n = L.mpl[j][1] - modu
 
+            oset = T.mpl_offset - row * T.current_zoom_inc
+            oset = oset - oset % new_inc
+
+            T.mpl_offset = oset + row * new_inc
             T.current_zoom_inc = new_inc
-            T.mpl_offset = 999999 - n - row * T.current_zoom_inc
 
         else: # zoom in
             i = T.zoom_inc.index(T.current_zoom_inc)
             if i - 1 < 0:
                 return
 
-            row = int((pos.y() - L.ladder_ctrl_height) / L.ladder_row_spacing)
-
+            row = (pos.y() - L.ladder_ctrl_height) // L.ladder_row_spacing
             new_inc = T.zoom_inc[i-1]
-            j = T.mpl_offset + row * T.current_zoom_inc
-
-            n = L.mpl[j][1]
-
-            T.mpl_offset = 999999 - ( n - n % new_inc) - row * new_inc 
-
+            
+            oset = T.mpl_offset - row * T.current_zoom_inc
+            
+            T.mpl_offset = oset + row * new_inc
             T.current_zoom_inc = new_inc
+            
 
         T.correct_oob()
         L.update()
@@ -2673,11 +2636,10 @@ class widgetLadder(QWidget):
             L.update() ; return
         
         # click was in ladder
-        if not T or T.mpl_offset is None:
-            return
-
         row = int((pos.y() - L.ladder_ctrl_height) / L.ladder_row_spacing)
-        
+
+        if L.price_rows[row] is None: return
+
         # get the order type, check if clicked on existing trade
         md = qapp.keyboardModifiers()
         on  = None 
@@ -2685,9 +2647,8 @@ class widgetLadder(QWidget):
         clicked_on_trade = None
 
         if pos.x() < L.last_price_box_x:
-            for b in L.buy_bxs.values():
-                if b[0] == row:
-                    clicked_on_trade = b[1][-1] ; break
+            if row in L.buy_bxs:
+                clicked_on_trade = L.buy_bxs[row]
             
             if e.button() == Qt.MouseButton.LeftButton and md == Qt.KeyboardModifier.NoModifier:
                 on = 'B'
@@ -2696,9 +2657,8 @@ class widgetLadder(QWidget):
                 stp = True
 
         elif pos.x() > L.last_price_box_x + L.last_price_box_width:
-            for b in L.sell_bxs.values():
-                if b[0] == row:
-                    clicked_on_trade = b[1][-1] ; break
+            if row in L.sell_bxs:
+                clicked_on_trade = L.sell_bxs[row]
 
             if e.button() == Qt.MouseButton.RightButton and md == Qt.KeyboardModifier.NoModifier:
                 on = 'S'
@@ -2730,14 +2690,14 @@ class widgetLadder(QWidget):
             # mouse press and location did not match a trade type
             return
         
-        o = T.mpl_offset + row * T.current_zoom_inc 
+        price_int = L.price_rows[row]
         
         if L.activated_floating_panel_ext is not None:
-            trade = tws_Trade(T, o, on, stp, place = False)
+            trade = tws_Trade(T, price_int, on, stp, place = False)
             L.activated_floating_panel_ext.pass_trade(trade)
         else:
             # post the trade
-            trade = tws_Trade(T, o, on, stp)
+            trade = tws_Trade(T, price_int, on, stp)
 
         L.update()
 
